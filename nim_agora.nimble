@@ -11,4 +11,5 @@ bin           = @["nim_agora"]
 # Dependencies
 
 requires "nim >= 1.7.1"
-requires "nimterop >= 0.6"
+requires "nimterop >= 0.6.13"
+requires "gintro#head"
