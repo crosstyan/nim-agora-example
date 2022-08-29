@@ -108,7 +108,8 @@ proc main =
   videoInfo.data_type = agora.VIDEO_DATA_TYPE_H264
   videoInfo.stream_type = agora.VIDEO_STREAM_LOW
   videoInfo.frame_type = agora.VIDEO_FRAME_AUTO_DETECT
-  videoInfo.frame_rate = 0
+  # 0 means auto detect which is not defined in the header
+  videoInfo.frame_rate = (0).video_frame_rate_e
 
 
 

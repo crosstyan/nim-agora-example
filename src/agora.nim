@@ -400,7 +400,7 @@ const
                                                               ##   invalid token
                                                               ## ```
 type
-  video_frame_info_t* {.bycopy, importc, impagora_rtc_apiHdr.} = object ## ```
+  video_frame_info_t* {.bycopy, importc, completeStruct, impagora_rtc_apiHdr.} = object ## ```
                                                                          ##   The definition of the video_frame_info_t struct.
                                                                          ## ```
     data_type*: video_data_type_e ## ```
