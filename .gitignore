@@ -4,3 +4,5 @@ htmldocs/
 *.so
 !agora_sdk/lib/aarch64/libagora-rtc-sdk.so
 nim_agora
+*.log
+logs

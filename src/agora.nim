@@ -426,7 +426,7 @@ type
                                   ##   Audio data type, reference #audio_data_type_e.
                                   ## ```
   
-  log_config_t* {.bycopy, importc, impagora_rtc_apiHdr.} = object ## ```
+  log_config_t* {.bycopy, importc, completeStruct,impagora_rtc_apiHdr.} = object ## ```
                                                                    ##   log config
                                                                    ## ```
     log_disable*: bool
@@ -434,7 +434,7 @@ type
     log_level*: rtc_log_level_e
     log_path*: cstring
 
-  rtc_service_option_t* {.bycopy, importc, impagora_rtc_apiHdr.} = object ## ```
+  rtc_service_option_t* {.bycopy, importc, completeStruct,impagora_rtc_apiHdr.} = object ## ```
                                                                            ##   The definition of the service option
                                                                            ## ```
     area_code*: uint32 ## ```
@@ -455,7 +455,7 @@ type
                                                      ##      - The 10 numbers: 0 to 9
                                                      ## ```
   
-  audio_codec_option_t* {.bycopy, importc, impagora_rtc_apiHdr.} = object
+  audio_codec_option_t* {.bycopy, importc, completeStruct, impagora_rtc_apiHdr.} = object
     audio_codec_type*: audio_codec_type_e ## ```
                                           ##   Configure sdk built-in audio codec
                                           ##      If AUDIO_CODEC_TYPE_OPUS is selected, your PCM data is encoded as OPUS and then streamed to Agora channel
@@ -469,7 +469,7 @@ type
                            ##   Pcm channel number. Ignored if audio coded is diabled
                            ## ```
   
-  rtc_channel_options_t* {.bycopy, importc, impagora_rtc_apiHdr.} = object ## ```
+  rtc_channel_options_t* {.bycopy, importc, completeStruct, impagora_rtc_apiHdr.} = object ## ```
                                                                             ##   The definition of the rtc_channel_options_t struct.
                                                                             ## ```
     auto_subscribe_audio*: bool
@@ -499,6 +499,7 @@ type
                                                         ## ```
   
   rtc_event_handler_t* {.bycopy, impagora_rtc_apiHdr,
+                         completeStruct,
                          importc: "agora_rtc_event_handler_t".} = object ## ```
                                                                           ##   Agora RTC SDK event handler
                                                                           ## ```
