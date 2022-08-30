@@ -35,26 +35,24 @@ type
     connId: uint32
     videoInfo: ptr video_frame_info_t
 proc newSampleCallback(sink: ptr AppSink00; xdata: pointer): gst.FlowReturn {.cdecl.} = 
-  let sinkObj = new(AppSink)
-  sinkObj.impl = sink
-  let param = cast[ptr NewSampleParams](xdata)[]
+  stdout.write "*"
   # I don't have `connect` and `pullSample` function
   # Why? Because I don't have GTK?
   # Just import dummygtk and you'll be right
-  let sample = sinkObj.pullSample()
-  let buf = sample.getBuffer().copy()
-  let mem = buf.getAllMemory()
-  var info = new(MapInfo)
-  let success = mem.map(info[], {gst.MapFlag.read})
-  defer: 
-    if success: mem.unmap(info[])
-  if success:
-    let code = agora.rtc_send_video_data(param.connId.connection_id_t, info.data, info.size.uint, param.videoInfo)
-    logWhenErr code, "send video data"
-    if code != 0:
-      stdout.write "*"
-      stdout.flushFile()
-  return gst.FlowReturn.ok
+  # let sample = sinkObj.pullSample()
+  # let buf = sample.getBuffer().copy()
+  # let mem = buf.getAllMemory()
+  # var info = new(MapInfo)
+  # let success = mem.map(info[], {gst.MapFlag.read})
+  # defer: 
+  #   if success: mem.unmap(info[])
+  # if success:
+  #   let code = agora.rtc_send_video_data(param.connId.connection_id_t, info.data, info.size.uint, param.videoInfo)
+  #   logWhenErr code, "send video data"
+  #   if code != 0:
+  #     stdout.write "*"
+  #     stdout.flushFile()
+  # return gst.FlowReturn.ok
 
 # See also 
 # https://github.com/StefanSalewski/gintro/blob/f4113ebab7b71c078e4ae57c380bcb8e9863abe9/examples/gtk3/appsink_src.nim
