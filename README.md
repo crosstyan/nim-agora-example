@@ -17,7 +17,7 @@ This project use [nimterop](https://github.com/nimterop/nimterop) to generate th
 Check `generate.nim` for more infomation. Please also see [the comment of cImport macro](https://github.com/nimterop/nimterop/blob/bf088be9e925fb16d664d092afad4ab6019a78c7/nimterop/cimport.nim#L652-L703).
 
 This example also use [gintro](https://github.com/StefanSalewski/gintro) as [gstreamer](https://gstreamer.freedesktop.org)'s bindings.
-If you have problem like `cannot open display` then you should clone the gintro repo and [comment out/delete this line](https://github.com/StefanSalewski/gintro/blob/0a6bbb59ebbae5da0d53009b2dcc7ced46b3b9d0/gintro.nimble#L65) then try `nimble develop` and `nimble install`.
+Maybe try to install the full [libgtk-4-dev](https://packages.debian.org/unstable/libgtk-4-dev).
 
 use `gen.sh` or `gen_toast.sh` to generate the bindings to `src/agora.nim`.
 NOTE: I have manually modify the bindings by hands, so if you regenerate the bindings

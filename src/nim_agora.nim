@@ -1,13 +1,22 @@
 import agora
-import gintro/gst
-import gintro/gstapp
-import gintro/gobject
+import gintro/[gst, gstapp, gobject, glib, gstbase]
 import std/os
 import std/parsecfg as cfg
 import std/[strutils, streams]
 import std/strformat
 import logger
 import callbacks
+
+# I have no IDEA why gintrop can't generate the bindings for pullSample
+# If your pullSample works please delete this function
+# Maybe relate to https://github.com/StefanSalewski/gintro/issues/108
+proc gst_app_sink_pull_sample*(sink: pointer): ptr Sample00 {.cdecl, importc: "gst_app_sink_pull_sample", dynlib: "libgstapp-1.0.so.0".}
+
+proc pullSample*(self: AppSink): Sample =
+  let pSample = gst_app_sink_pull_sample(self.impl)
+  let sample = new(Sample)
+  sample.impl = pSample
+  return sample
 
 proc panicWhenErr(code: int, what: string):void = 
   if code != 0: 
@@ -16,7 +25,39 @@ proc panicWhenErr(code: int, what: string):void =
   else:
     debug fmt"{what} success"
 
+proc logWhenErr(code: int, what: string):void = 
+  if code != 0: 
+    let explain = $agora.rtc_err_2_str(code.cint)
+    error fmt"{what} error with {code}: {explain}"
 
+type
+  NewSampleParams = object
+    connId: uint32
+    videoInfo: ptr video_frame_info_t
+proc newSampleCallback(sink: ptr AppSink00; xdata: pointer): gst.FlowReturn {.cdecl.} = 
+  let sinkObj = new(AppSink)
+  sinkObj.impl = sink
+  let param = cast[ptr NewSampleParams](xdata)[]
+  # I don't have `connect` and `pullSample` function
+  # Why? Because I don't have GTK?
+  # Just import dummygtk and you'll be right
+  let sample = sinkObj.pullSample()
+  let buf = sample.getBuffer().copy()
+  let mem = buf.getAllMemory()
+  var info = new(MapInfo)
+  let success = mem.map(info[], {gst.MapFlag.read})
+  defer: 
+    if success: mem.unmap(info[])
+  if success:
+    let code = agora.rtc_send_video_data(param.connId.connection_id_t, info.data, info.size.uint, param.videoInfo)
+    logWhenErr code, "send video data"
+    if code != 0:
+      stdout.write "*"
+      stdout.flushFile()
+  return gst.FlowReturn.ok
+
+# See also 
+# https://github.com/StefanSalewski/gintro/blob/f4113ebab7b71c078e4ae57c380bcb8e9863abe9/examples/gtk3/appsink_src.nim
 # I guess I don't have to release the memory called with C library?
 # https://forum.nim-lang.org/t/6216
 proc main = 
@@ -42,10 +83,9 @@ proc main =
   gst.init()
   let pipe = gst.parseLaunch(pipeline)
   let appSink = cast[Bin](pipe).getByName("agora")
-  proc newSampleCallback(sink: ptr AppSink00; xdata: pointer): gst.FlowReturn {.cdecl.} = return gst.FlowReturn.ok
+
   # https://nim-lang.org/docs/manual.html#types-set-type
   # whether the handler should be called before or after the default handler of the signal.
-  discard cast[AppSink](appSink).scNewSample(newSampleCallback, nil, {ConnectFlag.after})
 
   let home = os.getHomeDir()
   let certPath = os.joinPath(home, "certificate.bin")
@@ -62,6 +102,7 @@ proc main =
   let handlers = getDefaultHandler() 
   defer: dealloc(handlers)
   let logCfg = new(agora.log_config_t)
+
   logCfg.log_disable = false
   logCfg.log_disable_desensitize = false
   logCfg.log_level = agora.RTC_LOG_INFO
@@ -111,7 +152,15 @@ proc main =
   # 0 means auto detect which is not defined in the header
   videoInfo.frame_rate = (0).video_frame_rate_e
 
-
+  let params = create(NewSampleParams)
+  params.connId = connId
+  params.videoInfo = videoInfo
+  discard cast[AppSink](appSink).scNewSample(newSampleCallback, params, {ConnectFlag.after})
+  discard pipe.setState(State.playing)
+  defer: 
+    discard pipe.setState(State.null)
+  const sleepMilis = 5 * 1000
+  os.sleep(sleepMilis)
 
 when isMainModule:
   main()
