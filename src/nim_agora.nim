@@ -1,5 +1,5 @@
 import agora
-import gintro/[gst, gstapp, gobject, glib, gstbase]
+import gintro/[gtk4, gst, gstapp, gobject, glib, gstbase]
 import std/os
 import std/parsecfg as cfg
 import std/[strutils, streams]
@@ -35,8 +35,6 @@ type
     connId: uint32
     videoInfo: ptr video_frame_info_t
 proc newSampleCallback(sink: ptr AppSink00; xdata: pointer): gst.FlowReturn {.cdecl.} = 
-  # stdout.write "*"
-  # stdout.flushFile()
   let param = cast[ptr NewSampleParams](xdata)[]
   let sinkObj = new(AppSink)
   sinkObj.impl = sink
@@ -73,7 +71,7 @@ proc main =
         clockoverlay ! 
         videoconvert ! 
         x264enc ! 
-        appsink name=agora 
+        appsink name=agora
   """
   let version = $agora.rtc_get_version()
   let gstVersion = gst.versionString()
@@ -84,7 +82,6 @@ proc main =
   # seems not
   gst.init()
   let pipe = gst.parseLaunch(pipeline)
-  let appSink = cast[Bin](pipe).getByName("agora")
 
   # https://nim-lang.org/docs/manual.html#types-set-type
   # whether the handler should be called before or after the default handler of the signal.
@@ -102,11 +99,11 @@ proc main =
   panicWhenErr err, "license verify"
 
   let handlers = getDefaultHandler() 
-  let logCfg = new(agora.log_config_t)
+  let logCfg = create(agora.log_config_t)
 
   logCfg.log_disable = false
-  logCfg.log_disable_desensitize = false
-  logCfg.log_level = agora.RTC_LOG_INFO
+  logCfg.log_disable_desensitize = true
+  logCfg.log_level = agora.RTC_LOG_DEBUG
   logCfg.log_path = logPath.cstring
 
   let serviceOption = create(agora.rtc_service_option_t)
@@ -128,7 +125,7 @@ proc main =
     err = agora.rtc_destroy_connection(connId)
     panicWhenErr err, "destroy connection"
 
-  let codecOpts = new(agora.audio_codec_option_t)
+  let codecOpts = create(agora.audio_codec_option_t)
   codecOpts.audio_codec_type = agora.AUDIO_CODEC_DISABLED
   codecOpts.pcm_sample_rate = 0
   codecOpts.pcm_channel_num = 0
@@ -157,12 +154,17 @@ proc main =
   let params = create(NewSampleParams)
   params.connId = connId
   params.videoInfo = videoInfo
-  discard cast[AppSink](appSink).scNewSample(newSampleCallback, params, {ConnectFlag.after})
+
+  let appSink = cast[Bin](pipe).getByName("agora")
+  # https://stackoverflow.com/questions/66008157/how-to-get-h264-frames-via-gstreamer
+  # cast[gobject.Object](appSink).connect("new-sample", newSampleCallback, params)
+  # discard cast[AppSink](appSink).scNewSample(newSampleCallback, params, {ConnectFlag.after})
+  # https://gstreamer.freedesktop.org/documentation/tutorials/basic/debugging-tools.html?gi-language=c
+  discard g_signal_connect_data(appSink.impl, "new-sample", cast[GCallback](newSampleCallback), params, nil, {ConnectFlag.after})
   discard pipe.setState(State.playing)
   defer: 
     discard pipe.setState(State.null)
-  # sleep cause this
-  os.sleep(5000)
+  os.sleep(10000)
 
 when isMainModule:
   main()
