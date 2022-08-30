@@ -22,3 +22,5 @@ Maybe try to install the full [libgtk-4-dev](https://packages.debian.org/unstabl
 use `gen.sh` or `gen_toast.sh` to generate the bindings to `src/agora.nim`.
 NOTE: I have manually modify the bindings by hands, so if you regenerate the bindings
 the modification will be overrided. Check the git commit logs to see what I have done.
+
+https://github.com/nim-lang/nimble/issues/221

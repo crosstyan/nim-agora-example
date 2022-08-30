@@ -35,24 +35,28 @@ type
     connId: uint32
     videoInfo: ptr video_frame_info_t
 proc newSampleCallback(sink: ptr AppSink00; xdata: pointer): gst.FlowReturn {.cdecl.} = 
-  stdout.write "*"
+  # stdout.write "*"
+  # stdout.flushFile()
+  let param = cast[ptr NewSampleParams](xdata)[]
+  let sinkObj = new(AppSink)
+  sinkObj.impl = sink
   # I don't have `connect` and `pullSample` function
   # Why? Because I don't have GTK?
   # Just import dummygtk and you'll be right
-  # let sample = sinkObj.pullSample()
-  # let buf = sample.getBuffer().copy()
-  # let mem = buf.getAllMemory()
-  # var info = new(MapInfo)
-  # let success = mem.map(info[], {gst.MapFlag.read})
-  # defer: 
-  #   if success: mem.unmap(info[])
-  # if success:
-  #   let code = agora.rtc_send_video_data(param.connId.connection_id_t, info.data, info.size.uint, param.videoInfo)
-  #   logWhenErr code, "send video data"
-  #   if code != 0:
-  #     stdout.write "*"
-  #     stdout.flushFile()
-  # return gst.FlowReturn.ok
+  let sample = sinkObj.pullSample()
+  let buf = sample.getBuffer().copy()
+  let mem = buf.getAllMemory()
+  var info = new(MapInfo)
+  let success = mem.map(info[], {gst.MapFlag.read})
+  defer: 
+    if success: mem.unmap(info[])
+  if success:
+    let code = agora.rtc_send_video_data(param.connId.connection_id_t, info.data, info.size.uint, param.videoInfo)
+    logWhenErr code, "send video data"
+    if code != 0:
+      stdout.write "*"
+      stdout.flushFile()
+  return gst.FlowReturn.ok
 
 # See also 
 # https://github.com/StefanSalewski/gintro/blob/f4113ebab7b71c078e4ae57c380bcb8e9863abe9/examples/gtk3/appsink_src.nim
@@ -98,19 +102,18 @@ proc main =
   panicWhenErr err, "license verify"
 
   let handlers = getDefaultHandler() 
-  defer: dealloc(handlers)
   let logCfg = new(agora.log_config_t)
 
   logCfg.log_disable = false
   logCfg.log_disable_desensitize = false
   logCfg.log_level = agora.RTC_LOG_INFO
   logCfg.log_path = logPath.cstring
-  let serviceOption = create(agora.rtc_service_option_t)
-  defer: dealloc(serviceOption)
 
+  let serviceOption = create(agora.rtc_service_option_t)
   serviceOption.area_code = AREA_CODE_CN.uint32
   # `[]` is dereference operator (what?)
   serviceOption.log_cfg = logCfg[]
+
   err = agora.rtc_init(appId.cstring, handlers, serviceOption)
   panicWhenErr err, "init"
   defer: 
@@ -125,7 +128,7 @@ proc main =
     err = agora.rtc_destroy_connection(connId)
     panicWhenErr err, "destroy connection"
 
-  let codecOpts = create(agora.audio_codec_option_t)
+  let codecOpts = new(agora.audio_codec_option_t)
   codecOpts.audio_codec_type = agora.AUDIO_CODEC_DISABLED
   codecOpts.pcm_sample_rate = 0
   codecOpts.pcm_channel_num = 0
@@ -137,6 +140,7 @@ proc main =
   chanOpts.enable_audio_mixer = false
   chanOpts.audio_codec_opt = codecOpts[]
   chanOpts.enable_aut_encryption = false
+  # the problem is this line with join channel
   err = agora.rtc_join_channel(connId, channelName.cstring, uid, appToken.cstring, chanOpts)
   panicWhenErr err, "join channel"
   defer:
@@ -157,8 +161,8 @@ proc main =
   discard pipe.setState(State.playing)
   defer: 
     discard pipe.setState(State.null)
-  const sleepMilis = 5 * 1000
-  os.sleep(sleepMilis)
+  # sleep cause this
+  os.sleep(5000)
 
 when isMainModule:
   main()
