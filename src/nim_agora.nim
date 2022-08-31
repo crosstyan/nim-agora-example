@@ -68,9 +68,6 @@ proc main =
     gst.init()
     let pipe = gst.parseLaunch(pipeline)
 
-    # https://nim-lang.org/docs/manual.html#types-set-type
-    # whether the handler should be called before or after the default handler of the signal.
-
     let home = os.getHomeDir()
     let certPath = os.joinPath(home, "certificate.bin")
     debug "certification is located in ", certPath
@@ -84,7 +81,13 @@ proc main =
             nil, 0)
     panicWhenErr err, "license verify"
 
-    let handlers = getDefaultHandler()
+    # https://en.wikipedia.org/wiki/Hungarian_notation
+    # I know it's bad but what's the alternative without IDE?
+    # https://nim-lang.org/docs/manual.html#types-reference-and-pointer-types
+    # TODO: use destructor like in C++ instead of manual release
+    # https://nim-lang.org/docs/destructors.html
+    let pHandlers = getDefaultHandler()
+    defer: dealloc(pHandlers)
     # a ref in Nim is a reference (a managed pointer), and a "ref object" is a
     # reference to an object.
     let logCfg = new(agora.log_config_t)
@@ -95,17 +98,19 @@ proc main =
     logCfg.log_path = logPath.cstring
 
     let pServiceOption = create(agora.rtc_service_option_t)
+    defer: dealloc(pServiceOption)
     pServiceOption.area_code = AREA_CODE_CN.uint32
     # `[]` is dereference operator (what?)
     pServiceOption.log_cfg = logCfg[]
 
-    err = agora.rtc_init(appId.cstring, handlers, pServiceOption)
+    err = agora.rtc_init(appId.cstring, pHandlers, pServiceOption)
     panicWhenErr err, "init"
     defer:
         err = agora.rtc_fini()
         panicWhenErr err, "fini"
 
     let pConnId: ptr uint32 = create(uint32)
+    defer: dealloc(pConnId)
     err = agora.rtc_create_connection(pConnId)
     panicWhenErr err, "create connection"
     let connId: uint32 = pConnId[]
@@ -114,10 +119,12 @@ proc main =
         panicWhenErr err, "destroy connection"
 
     let pCodecOpts = create(agora.audio_codec_option_t)
+    defer: dealloc(pCodecOpts)
     pCodecOpts.audio_codec_type = agora.AUDIO_CODEC_DISABLED
     pCodecOpts.pcm_sample_rate = 0
     pCodecOpts.pcm_channel_num = 0
     let pChanOpts = create(agora.rtc_channel_options_t)
+    defer: dealloc(pChanOpts)
     pChanOpts.auto_subscribe_audio = false
     pChanOpts.auto_subscribe_video = false
     pChanOpts.subscribe_local_user = false
@@ -134,6 +141,7 @@ proc main =
         panicWhenErr err, "leave channel"
 
     let pVideoInfo = create(agora.video_frame_info_t)
+    defer: dealloc(pVideoInfo)
     pVideoInfo.data_type = agora.VIDEO_DATA_TYPE_H264
     pVideoInfo.stream_type = agora.VIDEO_STREAM_LOW
     pVideoInfo.frame_type = agora.VIDEO_FRAME_AUTO_DETECT
@@ -141,11 +149,13 @@ proc main =
     pVideoInfo.frame_rate = (0).video_frame_rate_e
 
     let pParams = create(NewSampleParams)
+    defer: dealloc(pParams)
     pParams.connId = connId
     pParams.videoInfo = pVideoInfo
 
     let appSink = cast[Bin](pipe).getByName("agora")
     let pAppSinkCb = create(GstAppSinkCallbacks)
+    defer: dealloc(pAppSinkCb)
     pAppSinkCb.new_sample = newSampleCallback
     # GstAppSink and appsink are different object?
     # https://gstreamer.freedesktop.org/documentation/app/appsink.html?gi-language=c
