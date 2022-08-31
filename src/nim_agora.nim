@@ -25,7 +25,6 @@ proc newSampleCallback(sink: ptr AppSink00;
     sinkObj.impl = sink
     # I don't have `connect` and `pullSample` function
     # Why? Because I don't have GTK?
-    # Just import dummygtk and you'll be right
     let sample = sinkObj.pullSample()
     let buf = sample.getBuffer().copy()
     let mem = buf.getAllMemory()
@@ -47,11 +46,32 @@ proc newSampleCallback(sink: ptr AppSink00;
 # I guess I don't have to release the memory called with C library?
 # https://forum.nim-lang.org/t/6216
 proc main =
-    const appId = "3759fd9101e04094869e7e69b9b3fe64"
-    const appToken = "007eJxTYPA8KzadSeC0+CrpH1yXHySdE0m/32bVImTOtrjr+52l9ywVGIzNTS3TUiwNDQxTDUwMLE0szCxTzVPNLJMsk4zTUs1MFm/mS1ZiFUiefa2TiZEBAkF8FoaS1OISBgYA7AEeWQ=="
-    const channelName = "test"
-    const uid: uint32 = 1234
-    const logPath = "logs"
+    let configPath = os.getConfigDir() / "nim-agora.ini"
+    info fmt"Try to open config file: {configPath}"
+    if not fileExists(configPath):
+        var file = open(configPath, FileMode.fmWrite)
+        var config = newConfig()
+        config.setSectionKey("", "appId", "myAppId")
+        config.setSectionKey("", "token", "myToken")
+        config.setSectionKey("", "channel", "test")
+        config.setSectionKey("", "uid", "1234")
+        config.setSectionKey("", "certPath", os.getHomeDir() / "certificate.bin")
+        config.setSectionKey("", "logPath", os.getCurrentDir() / "logs")
+        file.write(config)
+        echo fmt"""
+            I Can't find config at {configPath} and I have created a default one for you. 
+            Please fill your app id and token. 
+            I will exit now.
+        """
+        system.quit(0)
+    let config = loadConfig(configPath)
+    debug &"Config file dump: \n{config}"
+    let appId = config.getSectionValue("", "appId")
+    let appToken = config.getSectionValue("", "token")
+    let channelName = config.getSectionValue("", "channel")
+    let uid:uint32 = config.getSectionValue("", "uid").parseInt().uint32
+    let certPath = config.getSectionValue("", "certPath")
+    let logPath = config.getSectionValue("", "logPath")
     # I don't know why but if `tune=zerolatency` is not set the video will be
     # teared
     const pipeline = """
@@ -71,8 +91,6 @@ proc main =
     gst.init()
     let pipe = gst.parseLaunch(pipeline)
 
-    let home = os.getHomeDir()
-    let certPath = os.joinPath(home, "certificate.bin")
     debug "certification is located in ", certPath
     let certFile = open(certPath, fmRead)
     let certContent = readAll(certFile)
@@ -193,4 +211,3 @@ proc main =
 
 when isMainModule:
     main()
-
