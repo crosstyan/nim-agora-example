@@ -8,6 +8,7 @@ import logger
 import callbacks
 import utils
 
+let loop = glib.newMainLoop(nil, false)
 const UseSignal = false
 
 type
@@ -51,11 +52,13 @@ proc main =
     const channelName = "test"
     const uid: uint32 = 1234
     const logPath = "logs"
+    # I don't know why but if `tune=zerolatency` is not set the video will be
+    # teared
     const pipeline = """
         videotestsrc name=src is-live=true ! 
         clockoverlay ! 
         videoconvert ! 
-        x264enc ! 
+        x264enc speed-preset=ultrafast tune=zerolatency ! 
         appsink name=agora
   """
     let version = $agora.rtc_get_version()
@@ -86,24 +89,28 @@ proc main =
     # https://nim-lang.org/docs/manual.html#types-reference-and-pointer-types
     # TODO: use destructor like in C++ instead of manual release
     # https://nim-lang.org/docs/destructors.html
+    # More explanation on ref:
+    # https://www.reddit.com/r/nim/comments/q46sc5/whats_the_point_in_ref_object/
+    # https://forum.nim-lang.org/t/1207
     let pHandlers = getDefaultHandler()
     defer: dealloc(pHandlers)
     # a ref in Nim is a reference (a managed pointer), and a "ref object" is a
     # reference to an object.
-    let logCfg = new(agora.log_config_t)
+    # now the object is in stack
+    let logCfg = agora.log_config_t(
+      log_disable:  false,
+      log_disable_desensitize: true,
+      log_level: agora.RTC_LOG_DEBUG,
+      log_path: logPath.cstring,
+    )
 
-    logCfg.log_disable = false
-    logCfg.log_disable_desensitize = true
-    logCfg.log_level = agora.RTC_LOG_DEBUG
-    logCfg.log_path = logPath.cstring
-
-    let pServiceOption = create(agora.rtc_service_option_t)
-    defer: dealloc(pServiceOption)
-    pServiceOption.area_code = AREA_CODE_CN.uint32
+    let serviceOption = agora.rtc_service_option_t(
+      area_code : AREA_CODE_CN.uint32,
+      log_cfg : logCfg,
+    )
     # `[]` is dereference operator (what?)
-    pServiceOption.log_cfg = logCfg[]
 
-    err = agora.rtc_init(appId.cstring, pHandlers, pServiceOption)
+    err = agora.rtc_init(appId.cstring, pHandlers, serviceOption.addr)
     panicWhenErr err, "init"
     defer:
         err = agora.rtc_fini()
@@ -118,40 +125,39 @@ proc main =
         err = agora.rtc_destroy_connection(connId)
         panicWhenErr err, "destroy connection"
 
-    let pCodecOpts = create(agora.audio_codec_option_t)
-    defer: dealloc(pCodecOpts)
-    pCodecOpts.audio_codec_type = agora.AUDIO_CODEC_DISABLED
-    pCodecOpts.pcm_sample_rate = 0
-    pCodecOpts.pcm_channel_num = 0
-    let pChanOpts = create(agora.rtc_channel_options_t)
-    defer: dealloc(pChanOpts)
-    pChanOpts.auto_subscribe_audio = false
-    pChanOpts.auto_subscribe_video = false
-    pChanOpts.subscribe_local_user = false
-    pChanOpts.enable_audio_jitter_buffer = false
-    pChanOpts.enable_audio_mixer = false
-    pChanOpts.audio_codec_opt = pCodecOpts[]
-    pChanOpts.enable_aut_encryption = false
+    let codecOpts = agora.audio_codec_option_t(
+      audio_codec_type: agora.AUDIO_CODEC_DISABLED,
+      pcm_sample_rate: 0,
+      pcm_channel_num: 0,
+    )
+    let chanOpts = agora.rtc_channel_options_t(
+      auto_subscribe_audio : false,
+      auto_subscribe_video : false,
+      subscribe_local_user : false,
+      enable_audio_jitter_buffer : false,
+      enable_audio_mixer : false,
+      audio_codec_opt : codecOpts,
+      enable_aut_encryption : false,
+    )
     # the problem is this line with join channel
     err = agora.rtc_join_channel(connId, channelName.cstring, uid,
-        appToken.cstring, pChanOpts)
+        appToken.cstring, chanOpts.addr)
     panicWhenErr err, "join channel"
     defer:
         err = agora.rtc_leave_channel(connId)
         panicWhenErr err, "leave channel"
 
-    let pVideoInfo = create(agora.video_frame_info_t)
-    defer: dealloc(pVideoInfo)
-    pVideoInfo.data_type = agora.VIDEO_DATA_TYPE_H264
-    pVideoInfo.stream_type = agora.VIDEO_STREAM_LOW
-    pVideoInfo.frame_type = agora.VIDEO_FRAME_AUTO_DETECT
-    # 0 means auto detect which is not defined in the header
-    pVideoInfo.frame_rate = (0).video_frame_rate_e
-
+    let videoInfo = agora.video_frame_info_t(
+      data_type : agora.VIDEO_DATA_TYPE_H264,
+      stream_type : agora.VIDEO_STREAM_LOW,
+      frame_type : agora.VIDEO_FRAME_AUTO_DETECT,
+      # 0 means auto detect which is not defined in the header
+      frame_rate: (0).video_frame_rate_e,
+    )
     let pParams = create(NewSampleParams)
     defer: dealloc(pParams)
     pParams.connId = connId
-    pParams.videoInfo = pVideoInfo
+    pParams.videoInfo = videoInfo.addr
 
     let appSink = cast[Bin](pipe).getByName("agora")
     let pAppSinkCb = create(GstAppSinkCallbacks)
@@ -181,7 +187,8 @@ proc main =
     defer:
         discard pipe.setState(State.null)
     # I have to handle Ctrl+C to exit loop
-    let loop = glib.newMainLoop(nil, false)
+    onSignal(SIGINT):
+      loop.quit()
     glib.run(loop)
 
 when isMainModule:
