@@ -2,8 +2,6 @@ import logger
 import std/strformat
 import agora
 
-
-
 proc on_join_channel_success*(conn_id: connection_id_t; uid: uint32;
     elapsed_ms: cint) {.cdecl.} =
   system.setupForeignThreadGc()

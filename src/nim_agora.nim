@@ -1,5 +1,5 @@
 import agora
-import gintro/[gtk4, gst, gstapp, gobject, glib, gstbase]
+import gintro/[gst, gstapp, gobject, glib, gstbase]
 import std/os
 import std/parsecfg as cfg
 import std/[strutils, streams]
