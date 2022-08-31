@@ -6,202 +6,174 @@ import std/[strutils, streams]
 import std/strformat
 import logger
 import callbacks
+import utils
 
-# TODO: try https://github.com/pmunch/futhark
-# DEBUG: https://nim-lang.org/blog/2017/10/02/documenting-profiling-and-debugging-nim-code.html
-# I have do it by hands...
-type GDestroyNotify = proc(instance: pointer): void {.cdecl.}
-
-type GstAppSinkCallbacks {.bycopy, completeStruct.} = object
-  eos*: proc(appSink: ptr AppSink00, userData: pointer): void {.cdecl.}
-  new_preroll*: proc(appSink: ptr AppSink00;
-      userData: pointer): FlowReturn {.cdecl.}
-  new_sample*: proc(appSink: ptr AppSink00;
-      userData: pointer): FlowReturn {.cdecl.}
-  new_event*: proc(appSink: ptr AppSink00, userData: pointer): bool {.cdecl.}
-  gst_reserved {.importc: "_gst_reserved".}: pointer
-
-proc gst_app_sink_set_callbacks*(sink: pointer,
-    callbacks: ptr GstAppSinkCallbacks, userData: pointer,
-    notify: GDestroyNotify) {.importc, dynlib: "libgstapp-1.0.so.0".}
-
-# I have no IDEA why gintrop can't generate the bindings for pullSample
-# If your pullSample works please delete this function
-# Maybe relate to https://github.com/StefanSalewski/gintro/issues/108
-proc gst_app_sink_pull_sample*(sink: pointer): ptr Sample00 {.importc, dynlib: "libgstapp-1.0.so.0".}
-
-proc pullSample*(self: AppSink): Sample =
-  let pSample = gst_app_sink_pull_sample(self.impl)
-  let sample = new(Sample)
-  sample.impl = pSample
-  return sample
-
-proc panicWhenErr(code: int, what: string): void =
-  if code != 0:
-    let explain = $agora.rtc_err_2_str(code.cint)
-    raise newException(Defect, fmt"{what} error with {code}: {explain}")
-  else:
-    debug fmt"{what} success"
-
-proc logWhenErr(code: int, what: string): void =
-  if code != 0:
-    let explain = $agora.rtc_err_2_str(code.cint)
-    error fmt"{what} error with {code}: {explain}"
+const UseSignal = false
 
 type
-  NewSampleParams = object
-    connId: uint32
-    videoInfo: ptr video_frame_info_t
+    NewSampleParams = object
+        connId: uint32
+        videoInfo: ptr video_frame_info_t
 
-# This callback is never called?
-# https://forum.nim-lang.org/t/702
-# https://forum.nim-lang.org/t/7838
 # invoke your callback from another thread needs to step up gc
-# https://forum.nim-lang.org/t/1488
-# https://forum.nim-lang.org/t/6169
 proc newSampleCallback(sink: ptr AppSink00;
     xdata: pointer): gst.FlowReturn {.cdecl.} =
-  system.setupForeignThreadGc()
-  let param = cast[ptr NewSampleParams](xdata)[]
-  let sinkObj = new(AppSink)
-  sinkObj.impl = sink
-  # I don't have `connect` and `pullSample` function
-  # Why? Because I don't have GTK?
-  # Just import dummygtk and you'll be right
-  let sample = sinkObj.pullSample()
-  let buf = sample.getBuffer().copy()
-  let mem = buf.getAllMemory()
-  var info = new(MapInfo)
-  let success = mem.map(info[], {gst.MapFlag.read})
-  defer:
-    if success: mem.unmap(info[])
-  if success:
-    let code = agora.rtc_send_video_data(param.connId.connection_id_t,
-        info.data, info.size.uint, param.videoInfo)
-    logWhenErr code, "send video data"
-    if code != 0:
-      stdout.write "*"
-      stdout.flushFile()
-  return gst.FlowReturn.ok
+    system.setupForeignThreadGc()
+    let param = cast[ptr NewSampleParams](xdata)[]
+    let sinkObj = new(AppSink)
+    sinkObj.impl = sink
+    # I don't have `connect` and `pullSample` function
+    # Why? Because I don't have GTK?
+    # Just import dummygtk and you'll be right
+    let sample = sinkObj.pullSample()
+    let buf = sample.getBuffer().copy()
+    let mem = buf.getAllMemory()
+    var info = new(MapInfo)
+    let success = mem.map(info[], {gst.MapFlag.read})
+    defer:
+        if success: mem.unmap(info[])
+    if success:
+        let code = agora.rtc_send_video_data(param.connId.connection_id_t,
+            info.data, info.size.uint, param.videoInfo)
+        logWhenErr code, "send video data"
+        if code == 0:
+            stdout.write "*"
+            stdout.flushFile()
+    return gst.FlowReturn.ok
 
 # See also
 # https://github.com/StefanSalewski/gintro/blob/f4113ebab7b71c078e4ae57c380bcb8e9863abe9/examples/gtk3/appsink_src.nim
 # I guess I don't have to release the memory called with C library?
 # https://forum.nim-lang.org/t/6216
 proc main =
-  const appId = "3759fd9101e04094869e7e69b9b3fe64"
-  const appToken = "007eJxTYNCS+S8xfY2HooNatUuQ0ozOxTdupP4+JWRyrHtF7PpnWb8UGIzNTS3TUiwNDQxTDUwMLE0szCxTzVPNLJMsk4zTUs1Mri3jSQ79wZu8KDmYiZEBAkF8FoaS1OISBgYAPssg7A=="
-  const channelName = "test"
-  const uid: uint32 = 1234
-  const logPath = "logs"
-  const pipeline = """
+    const appId = "3759fd9101e04094869e7e69b9b3fe64"
+    const appToken = "007eJxTYPA8KzadSeC0+CrpH1yXHySdE0m/32bVImTOtrjr+52l9ywVGIzNTS3TUiwNDQxTDUwMLE0szCxTzVPNLJMsk4zTUs1MFm/mS1ZiFUiefa2TiZEBAkF8FoaS1OISBgYA7AEeWQ=="
+    const channelName = "test"
+    const uid: uint32 = 1234
+    const logPath = "logs"
+    const pipeline = """
         videotestsrc name=src is-live=true ! 
         clockoverlay ! 
         videoconvert ! 
         x264enc ! 
         appsink name=agora
   """
-  let version = $agora.rtc_get_version()
-  let gstVersion = gst.versionString()
-  info "Agora version ", version
-  info gstVersion
+    let version = $agora.rtc_get_version()
+    let gstVersion = gst.versionString()
+    info "Agora version ", version
+    info gstVersion
 
-  # I'm not sure whether this need to deinit
-  # seems not
-  gst.init()
-  let pipe = gst.parseLaunch(pipeline)
+    # I'm not sure whether this need to deinit
+    # seems not
+    gst.init()
+    let pipe = gst.parseLaunch(pipeline)
 
-  # https://nim-lang.org/docs/manual.html#types-set-type
-  # whether the handler should be called before or after the default handler of the signal.
+    # https://nim-lang.org/docs/manual.html#types-set-type
+    # whether the handler should be called before or after the default handler of the signal.
 
-  let home = os.getHomeDir()
-  let certPath = os.joinPath(home, "certificate.bin")
-  debug "certification is located in ", certPath
-  let certFile = open(certPath, fmRead)
-  let certContent = readAll(certFile)
-  debug "Cert length: ", $certContent.len
+    let home = os.getHomeDir()
+    let certPath = os.joinPath(home, "certificate.bin")
+    debug "certification is located in ", certPath
+    let certFile = open(certPath, fmRead)
+    let certContent = readAll(certFile)
+    debug "Cert length: ", $certContent.len
 
-  var err = 0;
-  # The syntax for type conversions is destination_type(expression_to_convert)
-  err = agora.rtc_license_verify(certContent.cstring, certContent.len.cint, nil, 0)
-  panicWhenErr err, "license verify"
+    var err = 0;
+    # The syntax for type conversions is destination_type(expression_to_convert)
+    err = agora.rtc_license_verify(certContent.cstring, certContent.len.cint,
+            nil, 0)
+    panicWhenErr err, "license verify"
 
-  let handlers = getDefaultHandler()
-  let logCfg = create(agora.log_config_t)
+    let handlers = getDefaultHandler()
+    # a ref in Nim is a reference (a managed pointer), and a "ref object" is a
+    # reference to an object.
+    let logCfg = new(agora.log_config_t)
 
-  logCfg.log_disable = false
-  logCfg.log_disable_desensitize = true
-  logCfg.log_level = agora.RTC_LOG_DEBUG
-  logCfg.log_path = logPath.cstring
+    logCfg.log_disable = false
+    logCfg.log_disable_desensitize = true
+    logCfg.log_level = agora.RTC_LOG_DEBUG
+    logCfg.log_path = logPath.cstring
 
-  let serviceOption = create(agora.rtc_service_option_t)
-  serviceOption.area_code = AREA_CODE_CN.uint32
-  # `[]` is dereference operator (what?)
-  serviceOption.log_cfg = logCfg[]
+    let pServiceOption = create(agora.rtc_service_option_t)
+    pServiceOption.area_code = AREA_CODE_CN.uint32
+    # `[]` is dereference operator (what?)
+    pServiceOption.log_cfg = logCfg[]
 
-  err = agora.rtc_init(appId.cstring, handlers, serviceOption)
-  panicWhenErr err, "init"
-  defer:
-    err = agora.rtc_fini()
-    panicWhenErr err, "fini"
+    err = agora.rtc_init(appId.cstring, handlers, pServiceOption)
+    panicWhenErr err, "init"
+    defer:
+        err = agora.rtc_fini()
+        panicWhenErr err, "fini"
 
-  let pConnId: ptr uint32 = create(uint32)
-  err = agora.rtc_create_connection(pConnId)
-  panicWhenErr err, "create connection"
-  let connId: uint32 = pConnId[]
-  defer:
-    err = agora.rtc_destroy_connection(connId)
-    panicWhenErr err, "destroy connection"
+    let pConnId: ptr uint32 = create(uint32)
+    err = agora.rtc_create_connection(pConnId)
+    panicWhenErr err, "create connection"
+    let connId: uint32 = pConnId[]
+    defer:
+        err = agora.rtc_destroy_connection(connId)
+        panicWhenErr err, "destroy connection"
 
-  let codecOpts = create(agora.audio_codec_option_t)
-  codecOpts.audio_codec_type = agora.AUDIO_CODEC_DISABLED
-  codecOpts.pcm_sample_rate = 0
-  codecOpts.pcm_channel_num = 0
-  let chanOpts = create(agora.rtc_channel_options_t)
-  chanOpts.auto_subscribe_audio = false
-  chanOpts.auto_subscribe_video = false
-  chanOpts.subscribe_local_user = false
-  chanOpts.enable_audio_jitter_buffer = false
-  chanOpts.enable_audio_mixer = false
-  chanOpts.audio_codec_opt = codecOpts[]
-  chanOpts.enable_aut_encryption = false
-  # the problem is this line with join channel
-  err = agora.rtc_join_channel(connId, channelName.cstring, uid,
-      appToken.cstring, chanOpts)
-  panicWhenErr err, "join channel"
-  defer:
-    err = agora.rtc_leave_channel(connId)
-    panicWhenErr err, "leave channel"
+    let pCodecOpts = create(agora.audio_codec_option_t)
+    pCodecOpts.audio_codec_type = agora.AUDIO_CODEC_DISABLED
+    pCodecOpts.pcm_sample_rate = 0
+    pCodecOpts.pcm_channel_num = 0
+    let pChanOpts = create(agora.rtc_channel_options_t)
+    pChanOpts.auto_subscribe_audio = false
+    pChanOpts.auto_subscribe_video = false
+    pChanOpts.subscribe_local_user = false
+    pChanOpts.enable_audio_jitter_buffer = false
+    pChanOpts.enable_audio_mixer = false
+    pChanOpts.audio_codec_opt = pCodecOpts[]
+    pChanOpts.enable_aut_encryption = false
+    # the problem is this line with join channel
+    err = agora.rtc_join_channel(connId, channelName.cstring, uid,
+        appToken.cstring, pChanOpts)
+    panicWhenErr err, "join channel"
+    defer:
+        err = agora.rtc_leave_channel(connId)
+        panicWhenErr err, "leave channel"
 
-  let videoInfo = create(agora.video_frame_info_t)
-  videoInfo.data_type = agora.VIDEO_DATA_TYPE_H264
-  videoInfo.stream_type = agora.VIDEO_STREAM_LOW
-  videoInfo.frame_type = agora.VIDEO_FRAME_AUTO_DETECT
-  # 0 means auto detect which is not defined in the header
-  videoInfo.frame_rate = (0).video_frame_rate_e
+    let pVideoInfo = create(agora.video_frame_info_t)
+    pVideoInfo.data_type = agora.VIDEO_DATA_TYPE_H264
+    pVideoInfo.stream_type = agora.VIDEO_STREAM_LOW
+    pVideoInfo.frame_type = agora.VIDEO_FRAME_AUTO_DETECT
+    # 0 means auto detect which is not defined in the header
+    pVideoInfo.frame_rate = (0).video_frame_rate_e
 
-  let params = create(NewSampleParams)
-  params.connId = connId
-  params.videoInfo = videoInfo
+    let pParams = create(NewSampleParams)
+    pParams.connId = connId
+    pParams.videoInfo = pVideoInfo
 
-  let appSink = cast[Bin](pipe).getByName("agora")
-  # In theory signal should work as well but it doesn't
-  let appSinkCb = create(GstAppSinkCallbacks)
-  appSinkCb.new_sample = newSampleCallback
-  # https://stackoverflow.com/questions/66008157/how-to-get-h264-frames-via-gstreamer
-  # connect(appSink, "new-sample", newSampleCallback, params)
-  # discard cast[AppSink](appSink).scNewSample(newSampleCallback, params, {ConnectFlag.after})
-  # https://gstreamer.freedesktop.org/documentation/tutorials/basic/debugging-tools.html?gi-language=c
-  # discard g_signal_connect_data(appSink.impl, "new-sample", cast[GCallback](
-  #     newSampleCallback), params, nil, {ConnectFlag.after})
-  gst_app_sink_set_callbacks(appSink.impl, appSinkCb, params, nil)
-  discard pipe.setState(State.playing)
-  defer:
-    discard pipe.setState(State.null)
-  # I have to handle Ctrl+C to exit loop
-  let loop = glib.newMainLoop(nil, false)
-  glib.run(loop)
+    let appSink = cast[Bin](pipe).getByName("agora")
+    let pAppSinkCb = create(GstAppSinkCallbacks)
+    pAppSinkCb.new_sample = newSampleCallback
+    # GstAppSink and appsink are different object?
+    # https://gstreamer.freedesktop.org/documentation/app/appsink.html?gi-language=c
+    # https://gstreamer.freedesktop.org/documentation/applib/gstappsink.html?gi-language=c
+    # Debug Gstreamer
+    # https://gstreamer.freedesktop.org/documentation/tutorials/basic/debugging-tools.html?gi-language=c
+    # https://gstreamer.freedesktop.org/documentation/tutorials/basic/short-cutting-the-pipeline.html?gi-language=c#walkthrough
+    if UseSignal:
+      # This signal is emitted from the streaming thread and only when the
+      # "emit-signals" property is TRUE!!!!!!!!!
+      appSink.setProperty("emit-signals", toBoolVal(true))
+      # these should be the same
+      # connect(appSink, "new-sample", newSampleCallback, params)
+      # discard cast[AppSink](appSink).scNewSample(newSampleCallback, params, {})
+      let handlerId = g_signal_connect(appSink.impl, "new-sample", cast[GCallback](
+          newSampleCallback), pParams)
+      if handlerId <= 0:
+          error "Failed to connect signal"
+    else:
+      # It's more efficient to use the callback instead of the signal
+      gst_app_sink_set_callbacks(appSink.impl, pAppSinkCb, pParams, nil)
+    discard pipe.setState(State.playing)
+    defer:
+        discard pipe.setState(State.null)
+    # I have to handle Ctrl+C to exit loop
+    let loop = glib.newMainLoop(nil, false)
+    glib.run(loop)
 
 when isMainModule:
-  main()
+    main()
 
